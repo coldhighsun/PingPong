@@ -44,10 +44,13 @@ dotnet run --no-build --project samples/PingPong.Sample -- client
 ```csharp
 await using var conn = new PingPongWebSocket(webSocket, new PingPongOptions
 {
-    Interval = TimeSpan.FromSeconds(15),
-    Timeout = TimeSpan.FromSeconds(10),
-    MaxMissedPongs = 2,
-    CloseOnTimeout = true,   // 默认 false：仅通知
+    Role = PingPongRole.Initiator,              // 默认；Responder 只应答 ping（服务端）
+    Interval = TimeSpan.FromSeconds(15),        // 默认：两次 ping 的间隔
+    Timeout = TimeSpan.FromSeconds(10),         // 默认：等待 pong 的时长（必须 <= Interval）
+    MaxMissedPongs = 2,                         // 默认：连续丢失多少次后触发 ConnectionLost
+    CloseOnTimeout = true,                      // 默认 false：仅通知
+    PingOnlyWhenIdle = true,                    // 默认：仅在入站静默后才 ping
+    IdleTimeout = TimeSpan.FromSeconds(10),     // 默认：首个 ping 前所需的静默时长
 });
 
 conn.MessageReceived += (data, type) => { /* 仅包含应用层消息 */ };
@@ -71,7 +74,16 @@ TCP 是字节流，因此 `PingPong.Tcp` 将每条消息封装为：4 字节大�
 var tcp = new TcpClient();
 await tcp.ConnectAsync("example.com", 5056);
 
-await using var conn = new PingPongTcpConnection(tcp, new PingPongOptions { CloseOnTimeout = true });
+await using var conn = new PingPongTcpConnection(tcp, new PingPongOptions
+{
+    Role = PingPongRole.Initiator,              // 默认；服务端使用 Responder
+    Interval = TimeSpan.FromSeconds(15),        // 默认
+    Timeout = TimeSpan.FromSeconds(10),         // 默认
+    MaxMissedPongs = 2,                         // 默认
+    CloseOnTimeout = true,                      // 默认 false：仅通知
+    PingOnlyWhenIdle = true,                    // 默认
+    IdleTimeout = TimeSpan.FromSeconds(10),     // 默认
+});
 conn.MessageReceived += data => { /* 仅包含应用层消息；内存仅在调用期间有效 */ };
 conn.PongReceived    += rtt => Console.WriteLine($"RTT {rtt.TotalMilliseconds} ms");
 conn.ConnectionLost  += reason => Console.WriteLine($"Lost: {reason}");

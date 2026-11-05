@@ -44,10 +44,13 @@ Typical setup: client = `Initiator` (default), server = `Responder` (`new PingPo
 ```csharp
 await using var conn = new PingPongWebSocket(webSocket, new PingPongOptions
 {
-    Interval = TimeSpan.FromSeconds(15),
-    Timeout = TimeSpan.FromSeconds(10),
-    MaxMissedPongs = 2,
-    CloseOnTimeout = true,   // default false: only notify
+    Role = PingPongRole.Initiator,              // default; Responder only answers pings (server)
+    Interval = TimeSpan.FromSeconds(15),        // default: time between pings
+    Timeout = TimeSpan.FromSeconds(10),         // default: wait for a pong (must be <= Interval)
+    MaxMissedPongs = 2,                         // default: consecutive misses before ConnectionLost
+    CloseOnTimeout = true,                      // default false: only notify
+    PingOnlyWhenIdle = true,                    // default: ping only after inbound silence
+    IdleTimeout = TimeSpan.FromSeconds(10),     // default: silence required before the first ping
 });
 
 conn.MessageReceived += (data, type) => { /* application messages only */ };
@@ -71,7 +74,16 @@ TCP is a byte stream, so `PingPong.Tcp` frames every message as a 4-byte big-end
 var tcp = new TcpClient();
 await tcp.ConnectAsync("example.com", 5056);
 
-await using var conn = new PingPongTcpConnection(tcp, new PingPongOptions { CloseOnTimeout = true });
+await using var conn = new PingPongTcpConnection(tcp, new PingPongOptions
+{
+    Role = PingPongRole.Initiator,              // default; use Responder on the server side
+    Interval = TimeSpan.FromSeconds(15),        // default
+    Timeout = TimeSpan.FromSeconds(10),         // default
+    MaxMissedPongs = 2,                         // default
+    CloseOnTimeout = true,                      // default false: only notify
+    PingOnlyWhenIdle = true,                    // default
+    IdleTimeout = TimeSpan.FromSeconds(10),     // default
+});
 conn.MessageReceived += data => { /* application messages only; memory valid during the call */ };
 conn.PongReceived    += rtt => Console.WriteLine($"RTT {rtt.TotalMilliseconds} ms");
 conn.ConnectionLost  += reason => Console.WriteLine($"Lost: {reason}");
