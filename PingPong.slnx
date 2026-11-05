@@ -11,6 +11,7 @@
   </Folder>
   <Folder Name="/assets/.github/workflows/">
     <File Path=".github/workflows/ci.yml" />
+    <File Path=".github/workflows/publish.yml" />
   </Folder>
   <Folder Name="/samples/">
     <Project Path="samples/PingPong.Sample/PingPong.Sample.csproj" />
