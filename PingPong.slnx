@@ -9,6 +9,9 @@
     <File Path="README.md" />
     <File Path="README.zh-CN.md" />
   </Folder>
+  <Folder Name="/assets/.github/">
+    <File Path=".github/dependabot.yml" />
+  </Folder>
   <Folder Name="/assets/.github/workflows/">
     <File Path=".github/workflows/ci.yml" />
     <File Path=".github/workflows/publish.yml" />
