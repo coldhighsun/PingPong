@@ -3,6 +3,7 @@
     <Project Path="samples/PingPong.Sample/PingPong.Sample.csproj" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/PingPong.Tcp/PingPong.Tcp.csproj" />
     <Project Path="src/PingPong.WebSockets/PingPong.WebSockets.csproj" />
     <Project Path="src/PingPong/PingPong.csproj" />
   </Folder>
