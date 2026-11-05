@@ -4,7 +4,10 @@ Application-level ping/pong heartbeat for .NET (net10.0). Detects dead connectio
 tells you when the peer stops answering. **Both ends must use this library** (it defines its own frame format).
 
 - `PingPong` – transport-independent core (`PingPongMonitor`, `IPingPongTransport`).
-- `PingPong.WebSockets` – WebSocket adapter and a ready-made wrapper (`PingPongWebSocket`). TCP etc. can be added by implementing `IPingPongTransport`.
+- `PingPong.WebSockets` – WebSocket adapter and a ready-made wrapper (`PingPongWebSocket`).
+- `PingPong.Tcp` – TCP/IP adapter (`TcpTransport`) and a ready-made wrapper (`PingPongTcpConnection`) with length-prefixed framing. Works over `TcpClient` or any `Stream` (e.g. `SslStream` for TLS).
+
+Other transports can be added by implementing `IPingPongTransport`.
 
 ## Sample
 
@@ -40,6 +43,55 @@ await conn.Completion;
 
 Always send through `PingPongWebSocket.SendAsync` (sends are serialized; a WebSocket allows one send at a time).
 
+## Quick start (TCP)
+
+TCP is a byte stream, so `PingPong.Tcp` frames every message as a 4-byte big-endian length followed by the payload
+(max 16 MiB). **Both ends must use `PingPong.Tcp`**, including for application messages.
+
+```csharp
+// Client: TcpClient (or any connected Stream, e.g. an SslStream for TLS). Ownership moves to the connection.
+var tcp = new TcpClient();
+await tcp.ConnectAsync("example.com", 5056);
+
+await using var conn = new PingPongTcpConnection(tcp, new PingPongOptions { CloseOnTimeout = true });
+conn.MessageReceived += data => { /* application messages only; memory valid during the call */ };
+conn.PongReceived    += rtt => Console.WriteLine($"RTT {rtt.TotalMilliseconds} ms");
+conn.ConnectionLost  += reason => Console.WriteLine($"Lost: {reason}");
+conn.Closed          += ex => Console.WriteLine(ex is null ? "closed" : $"failed: {ex.Message}");
+conn.Start();
+
+await conn.SendAsync("hello"u8.ToArray());
+await conn.Completion;
+```
+
+The server side is the same with `new PingPongOptions { Role = PingPongRole.Responder }` on an accepted `TcpClient`.
+`ConnectionLost` is what catches half-open connections (cable pulled, NAT timeout) that TCP itself reports only after minutes.
+`CloseAsync` closes the socket immediately (TCP has no close reason). Always send through `PingPongTcpConnection.SendAsync`.
+A send can be cancelled only while it waits for earlier sends; once its frame is being written it always completes (a half-written frame would corrupt the stream). `CloseAsync` aborts a write stuck on a peer that stopped reading.
+
+To use the core with your own loop over TCP, send with `TcpTransport` and read with the public `FrameReader`:
+
+```csharp
+var transport = new TcpTransport(tcpClient);
+await using var monitor = new PingPongMonitor(transport, options);
+monitor.Start();
+
+try
+{
+    using var reader = new FrameReader(tcpClient.GetStream());
+    while (await reader.ReadAsync(ct))
+    {
+        if (!monitor.TryHandleMessage(reader.Current.Span)) HandleApplicationMessage(reader.Current);
+    }
+}
+finally
+{
+    // The transport owns the TcpClient: close it when the loop ends (peer closed, error, cancellation),
+    // otherwise the socket stays open and the monitor keeps pinging a dead connection.
+    await transport.CloseAsync("");
+}
+```
+
 ## Using the core with your own receive loop
 
 ```csharp
@@ -67,5 +119,6 @@ After `ConnectionLost` pinging stops; there is no automatic reconnect.
 ## Frame format
 
 Binary message, 20 bytes, big endian: magic `PNG1` (ping) or `POG1` (pong), 8-byte sequence, 8-byte timestamp.
-Text messages are never treated as heartbeats. A binary application message of exactly 20 bytes starting with
+Text messages are never treated as heartbeats. Over TCP the heartbeat is one length-prefixed frame
+(`00 00 00 14` + the 20 bytes). A binary application message of exactly 20 bytes starting with
 one of those magics would be swallowed – avoid that prefix.

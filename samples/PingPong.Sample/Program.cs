@@ -3,6 +3,8 @@
 //   dotnet run --project samples/PingPong.Sample            # in-process demo: server + client
 //   dotnet run --project samples/PingPong.Sample -- server  # server only (port 5055)
 //   dotnet run --project samples/PingPong.Sample -- client  # client only, connects to port 5055
+//   dotnet run --project samples/PingPong.Sample -- tcp-server  # TCP echo server (port 5056)
+//   dotnet run --project samples/PingPong.Sample -- tcp-client  # TCP client, connects to port 5056
 //
 // Roles: the client is the Initiator (sends pings, measures RTT, detects a lost connection);
 // the server is the Responder (only answers pings with pongs).
@@ -10,12 +12,15 @@
 // when the server stops answering (we simulate that by stopping the server's receive loop).
 
 using System.Net;
+using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using PingPong;
+using PingPong.Tcp;
 using PingPong.WebSockets;
 
 const int Port = 5055;
+const int TcpPort = 5056;
 var url = $"ws://localhost:{Port}/";
 
 // Short intervals so the demo finishes quickly; use the defaults (15 s / 10 s) in real apps.
@@ -40,11 +45,56 @@ switch (mode)
     case "client":
         await RunClientAsync();
         break;
+    case "tcp-server":
+        await RunTcpServerAsync();
+        break;
+    case "tcp-client":
+        await RunTcpClientAsync();
+        break;
     default:
         var serverTask = RunServerAsync(simulateFailureAfter: TimeSpan.FromSeconds(5), CancellationToken.None);
         await Task.Delay(300); // let the listener start
         await RunClientAsync();
         break;
+}
+
+// TCP: same wrapper shape as the WebSocket one; messages are length-prefixed on the wire.
+async Task RunTcpClientAsync()
+{
+    var tcp = new TcpClient();
+    await tcp.ConnectAsync("localhost", TcpPort);
+
+    await using var conn = new PingPongTcpConnection(tcp, options);
+    conn.PongReceived += rtt => Log("client", $"pong, RTT {rtt.TotalMilliseconds:F1} ms");
+    conn.ConnectionLost += reason => Log("client", $"CONNECTION LOST: {reason}");
+    conn.MessageReceived += data => Log("client", $"app message: {Encoding.UTF8.GetString(data.Span)}");
+    conn.Closed += ex => Log("client", ex is null ? "closed" : $"closed with error: {ex.Message}");
+    conn.Start();
+
+    await conn.SendAsync("hello from tcp client"u8.ToArray());
+    await conn.Completion;
+}
+
+async Task RunTcpServerAsync()
+{
+    var listener = new TcpListener(System.Net.IPAddress.Loopback, TcpPort);
+    listener.Start();
+    Log("server", $"listening on tcp://localhost:{TcpPort}");
+
+    var tcp = await listener.AcceptTcpClientAsync();
+    listener.Stop();
+
+    await using var conn = new PingPongTcpConnection(tcp, serverOptions);
+    conn.MessageReceived += data =>
+    {
+        var text = Encoding.UTF8.GetString(data.Span);
+        Log("server", $"app message: {text}");
+        _ = conn.SendAsync(Encoding.UTF8.GetBytes($"echo: {text}"));
+    };
+    conn.Closed += ex => Log("server", ex is null ? "closed" : $"closed with error: {ex.Message}");
+    conn.Start();
+
+    await conn.Completion;
 }
 
 void Log(string who, string message) => Console.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {who,-6} {message}");

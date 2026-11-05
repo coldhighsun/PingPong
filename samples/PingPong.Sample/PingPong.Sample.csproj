@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PingPong\PingPong.csproj" />
+    <ProjectReference Include="..\..\src\PingPong.Tcp\PingPong.Tcp.csproj" />
     <ProjectReference Include="..\..\src\PingPong.WebSockets\PingPong.WebSockets.csproj" />
   </ItemGroup>
 
