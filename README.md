@@ -1,5 +1,12 @@
 # PingPong
 
+[![CI](https://github.com/coldhighsun/PingPong/actions/workflows/ci.yml/badge.svg)](https://github.com/coldhighsun/PingPong/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/PingPong.Heartbeat.svg)](https://www.nuget.org/packages/PingPong.Heartbeat)
+[![NuGet Pre-release](https://img.shields.io/nuget/vpre/PingPong.Heartbeat.svg?label=nuget%20pre-release)](https://www.nuget.org/packages/PingPong.Heartbeat/absoluteLatest)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/PingPong.Heartbeat.svg)](https://www.nuget.org/packages/PingPong.Heartbeat)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4.svg)](https://dotnet.microsoft.com/)
+[![License: MIT](https://img.shields.io/github/license/coldhighsun/PingPong.svg)](LICENSE)
+
 [中文](https://github.com/coldhighsun/PingPong/blob/main/README.zh-CN.md) | English
 
 Application-level ping/pong heartbeat for .NET (net10.0). Detects dead connections, measures round-trip time, and
