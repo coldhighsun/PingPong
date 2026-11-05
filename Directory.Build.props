@@ -1,15 +1,32 @@
 <Project>
   <PropertyGroup>
-    <Version>0.1.0</Version>
-    <Authors>PingPong</Authors>
-    <Description>Transport-agnostic application-level ping/pong heartbeat for .NET connections.</Description>
-    <PackageTags>ping;pong;heartbeat;websocket;keepalive</PackageTags>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Authors>coldhighsun</Authors>
+    <Copyright>Copyright (c) 2026 coldhighsun</Copyright>
+    <Description>Application-level ping/pong heartbeat for .NET: detects dead connections, measures round-trip time and reports lost peers. Includes WebSocket and TCP (length-prefixed framing) transports; other transports plug in via IPingPongTransport.</Description>
+    <PackageTags>ping;pong;heartbeat;keepalive;rtt;connection;websocket;tcp;networking</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageProjectUrl>https://github.com/coldhighsun/PingPong</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/coldhighsun/PingPong.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <DebugType>embedded</DebugType>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
   <ItemGroup Condition="'$(IsPackable)' != 'false'">
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.user" Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.user')" />
 </Project>

@@ -43,7 +43,7 @@ public class TcpIntegrationTests
         var client = new TcpClient();
         var acceptTask = listener.AcceptTcpClientAsync();
         await client.ConnectAsync(IPAddress.Loopback, port);
-        var server = await acceptTask.WaitAsync(WaitTimeout);
+        var server = await acceptTask.WaitAsync(WaitTimeout, TestCancellation.Token);
         return (client, server);
     }
 
@@ -78,11 +78,11 @@ public class TcpIntegrationTests
         server.Start();
 
         // Act
-        await client.SendAsync("hello"u8.ToArray());
-        await serverGotMessage.Task.WaitAsync(WaitTimeout);
-        var rttOnClient = await clientRtt.Task.WaitAsync(WaitTimeout);
-        var rttOnServer = await serverRtt.Task.WaitAsync(WaitTimeout);
-        await Task.Delay(TimeSpan.FromMilliseconds(350)); // several more heartbeats
+        await client.SendAsync("hello"u8.ToArray(), TestCancellation.Token);
+        await serverGotMessage.Task.WaitAsync(WaitTimeout, TestCancellation.Token);
+        var rttOnClient = await clientRtt.Task.WaitAsync(WaitTimeout, TestCancellation.Token);
+        var rttOnServer = await serverRtt.Task.WaitAsync(WaitTimeout, TestCancellation.Token);
+        await Task.Delay(TimeSpan.FromMilliseconds(350), TestCancellation.Token); // several more heartbeats
 
         // Assert
         Assert.True(rttOnClient >= TimeSpan.Zero);
@@ -111,9 +111,9 @@ public class TcpIntegrationTests
 
         // Act
         client.Start();
-        var reason = await lost.Task.WaitAsync(WaitTimeout);
-        var closeError = await closed.Task.WaitAsync(WaitTimeout);
-        await client.Completion.WaitAsync(WaitTimeout);
+        var reason = await lost.Task.WaitAsync(WaitTimeout, TestCancellation.Token);
+        var closeError = await closed.Task.WaitAsync(WaitTimeout, TestCancellation.Token);
+        await client.Completion.WaitAsync(WaitTimeout, TestCancellation.Token);
 
         // Assert
         Assert.False(string.IsNullOrEmpty(reason));
@@ -136,11 +136,11 @@ public class TcpIntegrationTests
 
         // Act
         serverSocket.Dispose();
-        var error = await closed.Task.WaitAsync(WaitTimeout);
+        var error = await closed.Task.WaitAsync(WaitTimeout, TestCancellation.Token);
 
         // Assert
         Assert.Null(error);
-        await client.Completion.WaitAsync(WaitTimeout);
+        await client.Completion.WaitAsync(WaitTimeout, TestCancellation.Token);
     }
 
     /// <summary>
@@ -161,8 +161,8 @@ public class TcpIntegrationTests
         // Act
         var header = new byte[LengthPrefixedFraming.HeaderSize];
         BinaryPrimitives.WriteInt32BigEndian(header, int.MaxValue);
-        await serverSocket.GetStream().WriteAsync(header);
-        var error = await closed.Task.WaitAsync(WaitTimeout);
+        await serverSocket.GetStream().WriteAsync(header, TestCancellation.Token);
+        var error = await closed.Task.WaitAsync(WaitTimeout, TestCancellation.Token);
 
         // Assert
         Assert.IsType<InvalidDataException>(error);
@@ -219,7 +219,7 @@ public class TcpIntegrationTests
         serverSocket.Dispose();
 
         // Act
-        await Assert.ThrowsAsync<InvalidOperationException>(async () => await client.Completion.WaitAsync(WaitTimeout));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await client.Completion.WaitAsync(WaitTimeout, TestCancellation.Token));
         var disposeError = await Record.ExceptionAsync(async () => await client.DisposeAsync());
 
         // Assert
@@ -242,9 +242,9 @@ public class TcpIntegrationTests
         client.Start();
 
         // Act
-        await client.DisposeAsync().AsTask().WaitAsync(WaitTimeout);
+        await client.DisposeAsync().AsTask().WaitAsync(WaitTimeout, TestCancellation.Token);
 
         // Assert
-        Assert.Null(await closed.Task.WaitAsync(WaitTimeout));
+        Assert.Null(await closed.Task.WaitAsync(WaitTimeout, TestCancellation.Token));
     }
 }
