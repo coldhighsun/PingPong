@@ -1,5 +1,7 @@
 # PingPong
 
+[中文](https://github.com/coldhighsun/PingPong/blob/main/README.zh-CN.md) | English
+
 Application-level ping/pong heartbeat for .NET (net10.0). Detects dead connections, measures round-trip time, and
 tells you when the peer stops answering. **Both ends must use this library** (it defines its own frame format).
 
@@ -9,12 +11,28 @@ tells you when the peer stops answering. **Both ends must use this library** (it
 
 Other transports can be added by implementing `IPingPongTransport`.
 
+## Install
+
+All three assemblies ship in a single NuGet package:
+
+```
+dotnet add package PingPong.Heartbeat
+```
+
 ## Sample
 
-[samples/PingPong.Sample](samples/PingPong.Sample/Program.cs) is a runnable demo (client is the Initiator via `PingPongWebSocket`, server is the Responder via the core `PingPongMonitor` with its own receive loop; the server hangs after 5 s so the client reports `ConnectionLost`):
+[samples/PingPong.Sample](https://github.com/coldhighsun/PingPong/blob/main/samples/PingPong.Sample/Program.cs) is a runnable demo (client is the Initiator via `PingPongWebSocket`, server is the Responder via the core `PingPongMonitor` with its own receive loop; the server hangs after 5 s so the client reports `ConnectionLost`):
 
 ```
 dotnet run --project samples/PingPong.Sample
+```
+
+To run server and client as separate processes (`server`/`client` for WebSocket, `tcp-server`/`tcp-client` for TCP), build once and start each one with `--no-build` in its own terminal. Without it, a rebuild triggered by the second `dotnet run` fails on Windows because the first process has the exe locked.
+
+```
+dotnet build samples/PingPong.Sample
+dotnet run --no-build --project samples/PingPong.Sample -- server
+dotnet run --no-build --project samples/PingPong.Sample -- client
 ```
 
 ## Quick start (WebSocket)
@@ -122,3 +140,7 @@ Binary message, 20 bytes, big endian: magic `PNG1` (ping) or `POG1` (pong), 8-by
 Text messages are never treated as heartbeats. Over TCP the heartbeat is one length-prefixed frame
 (`00 00 00 14` + the 20 bytes). A binary application message of exactly 20 bytes starting with
 one of those magics would be swallowed – avoid that prefix.
+
+## License
+
+[MIT](https://github.com/coldhighsun/PingPong/blob/main/LICENSE)
