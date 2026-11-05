@@ -53,8 +53,8 @@ public class TcpTransportTests
         var transport = new TcpTransport(stream);
 
         // Act
-        await transport.CloseAsync("bye");
-        await transport.CloseAsync("again");
+        await transport.CloseAsync("bye", TestCancellation.Token);
+        await transport.CloseAsync("again", TestCancellation.Token);
 
         // Assert
         Assert.True(transport.IsClosed);
@@ -70,10 +70,10 @@ public class TcpTransportTests
     {
         // Arrange
         var transport = new TcpTransport(new MemoryStream());
-        await transport.CloseAsync("bye");
+        await transport.CloseAsync("bye", TestCancellation.Token);
 
         // Act & Assert
-        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await transport.SendAsync(new byte[] { 1 }));
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await transport.SendAsync(new byte[] { 1 }, TestCancellation.Token));
     }
 
     /// <summary>
@@ -88,12 +88,12 @@ public class TcpTransportTests
         var transport = new TcpTransport(stream);
         using var cts = new CancellationTokenSource();
         var send = transport.SendAsync(new byte[] { 1, 2, 3 }, cts.Token).AsTask();
-        await stream.WriteStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await stream.WriteStarted.Task.WaitAsync(TimeSpan.FromSeconds(10), TestCancellation.Token);
 
         // Act
         await cts.CancelAsync();
         stream.Gate.SetResult();
-        await send.WaitAsync(TimeSpan.FromSeconds(10));
+        await send.WaitAsync(TimeSpan.FromSeconds(10), TestCancellation.Token);
 
         // Assert
         Assert.Equal(new byte[] { 0, 0, 0, 3, 1, 2, 3 }, stream.ToArray());

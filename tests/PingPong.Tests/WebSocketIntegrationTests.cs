@@ -60,11 +60,11 @@ public class WebSocketIntegrationTests
         client.MessageReceived += (data, _) => { lock (clientGotMsgs) clientGotMsgs.Add(System.Text.Encoding.UTF8.GetString(data.Span)); };
         client.Start();
 
-        Assert.True((await clientRtt.Task.WaitAsync(Wait)) >= TimeSpan.Zero);
-        Assert.True((await serverRtt.Task.WaitAsync(Wait)) >= TimeSpan.Zero);
+        Assert.True((await clientRtt.Task.WaitAsync(Wait, TestCancellation.Token)) >= TimeSpan.Zero);
+        Assert.True((await serverRtt.Task.WaitAsync(Wait, TestCancellation.Token)) >= TimeSpan.Zero);
 
-        await client.SendAsync("hello"u8.ToArray(), WebSocketMessageType.Text);
-        Assert.Equal("hello", await serverGotMsg.Task.WaitAsync(Wait));
+        await client.SendAsync("hello"u8.ToArray(), WebSocketMessageType.Text, TestCancellation.Token);
+        Assert.Equal("hello", await serverGotMsg.Task.WaitAsync(Wait, TestCancellation.Token));
         lock (clientGotMsgs) Assert.Empty(clientGotMsgs); // heartbeats never leak to the app
 
         await server!.DisposeAsync();
@@ -87,16 +87,16 @@ public class WebSocketIntegrationTests
         client.ConnectionLost += r => lost.TrySetResult(r);
         client.Start();
 
-        await lost.Task.WaitAsync(Wait);
+        await lost.Task.WaitAsync(Wait, TestCancellation.Token);
 
         // CloseOnTimeout: client initiated a close, visible to the peer as CloseReceived once it reads.
         var deadline = DateTime.UtcNow + Wait;
         while (clientSocket.State == WebSocketState.Open && DateTime.UtcNow < deadline)
-            await Task.Delay(20);
+            await Task.Delay(20, TestCancellation.Token);
         Assert.NotEqual(WebSocketState.Open, clientSocket.State);
 
         // The peer never acknowledges the close, yet the connection must still be torn down.
-        await client.Completion.WaitAsync(Wait);
+        await client.Completion.WaitAsync(Wait, TestCancellation.Token);
 
         listener.Stop();
     }

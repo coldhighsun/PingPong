@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Packaging-only project: ships PingPong, PingPong.WebSockets and PingPong.Tcp as ONE NuGet package named "PingPong.Heartbeat".
+    It has no code of its own; the assemblies of the referenced projects are placed into lib/<tfm>/.
+  -->
+  <PropertyGroup>
+    <PackageId>PingPong.Heartbeat</PackageId>
+    <Title>PingPong.Heartbeat</Title>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);AddReferencedProjectOutputs</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PingPong\PingPong.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\PingPong.Tcp\PingPong.Tcp.csproj" PrivateAssets="all" />
+    <ProjectReference Include="..\PingPong.WebSockets\PingPong.WebSockets.csproj" PrivateAssets="all" />
+  </ItemGroup>
+
+  <Target Name="AddReferencedProjectOutputs" DependsOnTargets="ResolveReferences">
+    <ItemGroup>
+      <_ProjectOutput Include="@(ReferenceCopyLocalPaths)"
+                      Condition="'%(ReferenceCopyLocalPaths.Extension)' == '.dll' Or '%(ReferenceCopyLocalPaths.Extension)' == '.xml'" />
+      <_ProjectDoc Include="@(_ProjectOutput->'%(RootDir)%(Directory)%(Filename).xml')" Condition="'%(Extension)' == '.dll'" />
+      <TfmSpecificPackageFile Include="@(_ProjectOutput)" PackagePath="lib/$(TargetFramework)/" />
+      <TfmSpecificPackageFile Include="@(_ProjectDoc)" PackagePath="lib/$(TargetFramework)/" Condition="Exists('%(FullPath)')" />
+    </ItemGroup>
+  </Target>
+
+</Project>
