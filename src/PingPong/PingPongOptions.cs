@@ -27,8 +27,25 @@ public sealed class PingPongOptions
     /// <summary>Whether to close the transport when the connection is considered lost. Defaults to notify only.</summary>
     public bool CloseOnTimeout { get; set; }
 
+    /// <summary>
+    /// When true (default), pings are only sent after nothing has been received for <see cref="IdleTimeout"/>.
+    /// Any inbound message (application data, ping or pong) counts as proof of life. Set to false to ping on every <see cref="Interval"/>.
+    /// </summary>
+    public bool PingOnlyWhenIdle { get; set; } = true;
+
+    /// <summary>
+    /// How long without any inbound message before pinging starts. Only used when <see cref="PingOnlyWhenIdle"/> is true.
+    /// The first ping goes out right when this elapses; afterwards unanswered pings repeat every <see cref="Interval"/>.
+    /// </summary>
+    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
     internal void Validate()
     {
+        if (PingOnlyWhenIdle && IdleTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(IdleTimeout), "IdleTimeout must be positive.");
+        }
+
         if (!Enum.IsDefined(Role))
             throw new ArgumentOutOfRangeException(nameof(Role));
         if (Interval <= TimeSpan.Zero)

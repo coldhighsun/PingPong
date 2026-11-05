@@ -96,7 +96,7 @@ monitor.Start();
 
 try
 {
-    using var reader = new FrameReader(tcpClient.GetStream());
+    using var reader = new FrameReader(tcpClient.GetStream(), monitor.NotifyReceived);
     while (await reader.ReadAsync(ct))
     {
         if (!monitor.TryHandleMessage(reader.Current.Span)) HandleApplicationMessage(reader.Current);
@@ -127,11 +127,13 @@ if (!monitor.TryHandleMessage(bytes)) HandleApplicationMessage(bytes);
 |---|---|---|
 | `Interval` | 15 秒 | 两次 ping 之间的间隔 |
 | `Timeout` | 10 秒 | 等待 pong 的时长，超时则该次 ping 视为丢失（必须 ≤ `Interval`） |
+| `PingOnlyWhenIdle` | true | 仅在 `IdleTimeout` 内没有收到任何消息（业务数据、ping、pong 均算）时才发送 ping。设为 `false` 则每个 `Interval` 都发送 |
+| `IdleTimeout` | 10 秒 | 开始 ping 前需要的入站静默时长（仅在 `PingOnlyWhenIdle` 为 true 时生效）。首个 ping 在该时长到期时发出，之后未应答的 ping 每 `Interval` 重复。**行为变更：** `PingOnlyWhenIdle` 默认为 `true`；若依赖有流量时仍定期 ping / `PongReceived` 的 RTT，请设为 `false` |
 | `MaxMissedPongs` | 2 | 连续丢失多少次后触发 `ConnectionLost`（仅触发一次） |
 | `CloseOnTimeout` | false | 连接丢失时是否同时关闭传输层 |
 | `Role` | `Initiator` | `Initiator` 发送 ping 并检测连接丢失（客户端）。`Responder` 只用 pong 应答 ping（服务端）：不发送 ping，也没有 `PongReceived`/`ConnectionLost`。如果两端都是 initiator，则双方互相 ping |
 
-丢失判定在每个 tick 进行，因此大约在最后一次被应答的 ping 之后 `MaxMissedPongs × Interval` 时报告连接丢失。
+丢失判定在每个 tick 进行，因此大约在第一个未被应答的 ping 之后 `MaxMissedPongs × Interval` 时报告连接丢失。启用 `PingOnlyWhenIdle` 时，该首个 ping 在最后一条入站消息之后 `IdleTimeout`发出。
 `ConnectionLost` 之后 ping 会停止；不提供自动重连。
 
 ## 帧格式

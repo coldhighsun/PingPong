@@ -101,6 +101,9 @@ public sealed class PingPongWebSocket : IAsyncDisposable
                     }
                     result = await _socket.ReceiveAsync(buffer.AsMemory(length), ct).ConfigureAwait(false);
                     length += result.Count;
+
+                    // Any frame (text, partial or binary) proves the peer is alive.
+                    _monitor.NotifyReceived();
                 } while (!result.EndOfMessage);
 
                 if (result.MessageType == WebSocketMessageType.Close)

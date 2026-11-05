@@ -235,4 +235,33 @@ public class LengthPrefixedFramingTests
         // Assert
         Assert.Equal(new byte[] { 0, 0, 0, 2, 0xAA, 0xBB }, stream.ToArray());
     }
+
+    /// <summary>
+    /// A stream that returns one byte per read.
+    /// </summary>
+    private sealed class TrickleStream(byte[] data) : MemoryStream(data)
+    {
+        /// <inheritdoc />
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            => base.ReadAsync(buffer[..Math.Min(1, buffer.Length)], cancellationToken);
+    }
+
+    /// <summary>
+    /// The activity callback fires for every chunk, so a slowly arriving frame counts as activity before it completes.
+    /// </summary>
+    [Fact]
+    public async Task ReadAsync_SlowFrame_InvokesActivityCallbackPerChunk()
+    {
+        // Arrange: 4-byte header + 3-byte payload, delivered one byte at a time.
+        var activity = 0;
+        using var reader = new FrameReader(new TrickleStream([0, 0, 0, 3, 1, 2, 3]), () => activity++);
+
+        // Act
+        var ok = await reader.ReadAsync(CancellationToken.None);
+
+        // Assert
+        Assert.True(ok);
+        Assert.Equal(new byte[] { 1, 2, 3 }, reader.Current.ToArray());
+        Assert.Equal(7, activity);
+    }
 }

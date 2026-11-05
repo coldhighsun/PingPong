@@ -14,6 +14,7 @@ public class WebSocketIntegrationTests
         Timeout = TimeSpan.FromMilliseconds(80),
         MaxMissedPongs = 2,
         CloseOnTimeout = close,
+        PingOnlyWhenIdle = false,
     };
 
     /// <summary>Starts a loopback server; hands the accepted server-side socket to <paramref name="onAccept"/>.</summary>
@@ -68,6 +69,59 @@ public class WebSocketIntegrationTests
         lock (clientGotMsgs) Assert.Empty(clientGotMsgs); // heartbeats never leak to the app
 
         await server!.DisposeAsync();
+        listener.Stop();
+    }
+
+    /// <summary>
+    /// Text frames from the peer count as activity, so an on-demand client sends no pings while they keep arriving.
+    /// </summary>
+    [Fact]
+    public async Task Receive_TextTrafficFlowing_OnDemandClientSendsNoPing()
+    {
+        var pingsSeenByServer = 0;
+        var serverDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var (clientSocket, listener) = await ConnectAsync(async ws =>
+        {
+            var reader = Task.Run(async () =>
+            {
+                var buffer = new byte[256];
+                while (ws.State == WebSocketState.Open)
+                {
+                    var r = await ws.ReceiveAsync(buffer, CancellationToken.None);
+                    if (r.MessageType == WebSocketMessageType.Binary)
+                    {
+                        Interlocked.Increment(ref pingsSeenByServer);
+                    }
+                    else if (r.MessageType == WebSocketMessageType.Close)
+                    {
+                        break;
+                    }
+                }
+            });
+
+            for (var i = 0; i < 30; i++)
+            {
+                await ws.SendAsync("tick"u8.ToArray(), WebSocketMessageType.Text, true, CancellationToken.None);
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+            }
+
+            serverDone.TrySetResult();
+            await reader;
+        });
+
+        await using var client = new PingPongWebSocket(clientSocket, new PingPongOptions
+        {
+            Interval = TimeSpan.FromMilliseconds(100),
+            Timeout = TimeSpan.FromMilliseconds(80),
+            PingOnlyWhenIdle = true,
+            IdleTimeout = TimeSpan.FromMilliseconds(1500), // generous margin over the 100 ms send gap
+        });
+        client.Start();
+
+        await serverDone.Task.WaitAsync(Wait, TestCancellation.Token);
+
+        Assert.Equal(0, Volatile.Read(ref pingsSeenByServer));
         listener.Stop();
     }
 

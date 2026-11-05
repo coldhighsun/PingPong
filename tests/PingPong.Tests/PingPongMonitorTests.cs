@@ -36,6 +36,7 @@ public class PingPongMonitorTests
         Interval = TimeSpan.FromSeconds(10),
         Timeout = TimeSpan.FromSeconds(5),
         MaxMissedPongs = 2,
+        PingOnlyWhenIdle = false,
     };
 
     private static (PingPongMonitor, FakeTransport, FakeTimeProvider) Create(PingPongOptions? o = null)
@@ -121,7 +122,7 @@ public class PingPongMonitorTests
     {
         var (m, t, time) = Create(new PingPongOptions
         {
-            Interval = Opts.Interval, Timeout = Opts.Timeout, MaxMissedPongs = 1, CloseOnTimeout = true,
+            Interval = Opts.Interval, Timeout = Opts.Timeout, MaxMissedPongs = 1, CloseOnTimeout = true, PingOnlyWhenIdle = false,
         });
         m.Start();
 
@@ -175,7 +176,7 @@ public class PingPongMonitorTests
     {
         var (m, t, time) = Create(new PingPongOptions
         {
-            Interval = Opts.Interval, Timeout = Opts.Timeout, Role = PingPongRole.Initiator,
+            Interval = Opts.Interval, Timeout = Opts.Timeout, Role = PingPongRole.Initiator, PingOnlyWhenIdle = false,
         });
         m.Start();
         time.Advance(TimeSpan.FromSeconds(10));
@@ -219,6 +220,194 @@ public class PingPongMonitorTests
 
         await m.DisposeAsync();
         Assert.Throws<ObjectDisposedException>(m.Start);
+    }
+
+    /// <summary>
+    /// Creates on-demand options: 10 s interval, 25 s idle timeout.
+    /// </summary>
+    /// <returns>The options.</returns>
+    private static PingPongOptions IdleOpts() => new()
+    {
+        Interval = TimeSpan.FromSeconds(10),
+        Timeout = TimeSpan.FromSeconds(5),
+        MaxMissedPongs = 2,
+        PingOnlyWhenIdle = true,
+        IdleTimeout = TimeSpan.FromSeconds(25),
+    };
+
+    /// <summary>
+    /// Verifies the documented defaults of the on-demand settings.
+    /// </summary>
+    [Fact]
+    public void Options_Defaults_PingOnlyWhenIdleOnWithTenSecondIdleTimeout()
+    {
+        var o = new PingPongOptions();
+
+        Assert.True(o.PingOnlyWhenIdle);
+        Assert.Equal(TimeSpan.FromSeconds(10), o.IdleTimeout);
+    }
+
+    /// <summary>
+    /// Inbound application data keeps the link "alive", so no ping is sent.
+    /// </summary>
+    [Fact]
+    public async Task OnTick_TrafficFlowing_SendsNoPing()
+    {
+        var (m, t, time) = Create(IdleOpts());
+        m.Start();
+
+        for (var i = 0; i < 10; i++)
+        {
+            time.Advance(TimeSpan.FromSeconds(10));
+            m.TryHandleMessage("data"u8);
+        }
+
+        Assert.Empty(t.Sent);
+        await m.DisposeAsync();
+    }
+
+    /// <summary>
+    /// With no traffic, the first ping goes out exactly when the idle timeout expires.
+    /// </summary>
+    [Fact]
+    public async Task OnTick_NoTraffic_PingsExactlyAtIdleTimeout()
+    {
+        var (m, t, time) = Create(IdleOpts());
+        m.Start();
+
+        time.Advance(TimeSpan.FromSeconds(24));
+        Assert.Empty(t.Sent);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Single(t.Sent);
+        Assert.Equal(PingPongKind.Ping, t.Last().Kind);
+        await m.DisposeAsync();
+    }
+
+    /// <summary>
+    /// When the idle timeout is shorter than the interval, the first ping is not delayed to the interval.
+    /// </summary>
+    [Fact]
+    public async Task OnTick_IdleTimeoutShorterThanInterval_PingsAtIdleTimeout()
+    {
+        var (m, t, time) = Create(new PingPongOptions());
+        m.Start();
+
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        Assert.Single(t.Sent);
+        await m.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Traffic that bypasses <see cref="PingPongMonitor.TryHandleMessage"/> can still defer pinging.
+    /// </summary>
+    [Fact]
+    public async Task NotifyReceived_RefreshesIdleTimer_DefersPing()
+    {
+        var (m, t, time) = Create(IdleOpts());
+        m.Start();
+
+        time.Advance(TimeSpan.FromSeconds(20));
+        m.NotifyReceived();
+        time.Advance(TimeSpan.FromSeconds(10)); // original tick at 25 s sees only 10 s of idle
+        Assert.Empty(t.Sent);
+
+        time.Advance(TimeSpan.FromSeconds(15)); // 25 s after the notification
+        Assert.Single(t.Sent);
+        await m.DisposeAsync();
+    }
+
+    /// <summary>
+    /// After an idle ping is answered, the link counts as active again and pinging stops.
+    /// </summary>
+    [Fact]
+    public async Task TryHandleMessage_PongAfterIdlePing_ReturnsToQuiet()
+    {
+        var (m, t, time) = Create(IdleOpts());
+        m.Start();
+        time.Advance(TimeSpan.FromSeconds(25));
+        Assert.Single(t.Sent);
+
+        time.Advance(TimeSpan.FromMilliseconds(40));
+        m.TryHandleMessage(PongFor(t));
+
+        time.Advance(TimeSpan.FromSeconds(10));
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        Assert.Single(t.Sent);
+        await m.DisposeAsync();
+    }
+
+    /// <summary>
+    /// An idle link whose pings go unanswered is still reported lost after the configured misses.
+    /// </summary>
+    [Fact]
+    public async Task OnTick_IdleAndNoPong_RaisesConnectionLost()
+    {
+        var (m, _, time) = Create(IdleOpts());
+        var reasons = new List<string>();
+        m.ConnectionLost += reasons.Add;
+        m.Start();
+
+        time.Advance(TimeSpan.FromSeconds(25)); // ping 0
+        time.Advance(TimeSpan.FromSeconds(10)); // ping 0 missed (1), ping 1
+        Assert.Empty(reasons);
+
+        time.Advance(TimeSpan.FromSeconds(10)); // ping 1 missed (2) -> lost
+        Assert.Single(reasons);
+        await m.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Restarting the monitor restarts the idle window instead of pinging immediately.
+    /// </summary>
+    [Fact]
+    public async Task Start_AfterStop_RestartsIdleWindow()
+    {
+        var (m, t, time) = Create(IdleOpts());
+        m.Start();
+        time.Advance(TimeSpan.FromSeconds(25));
+        m.TryHandleMessage(PongFor(t));
+        m.Stop();
+
+        m.Start();
+        time.Advance(TimeSpan.FromSeconds(24));
+        Assert.Single(t.Sent);
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        Assert.Equal(2, t.Sent.Count);
+        await m.DisposeAsync();
+    }
+
+    /// <summary>
+    /// With the switch off, pings continue on every interval regardless of inbound traffic.
+    /// </summary>
+    [Fact]
+    public async Task OnTick_PingOnlyWhenIdleDisabled_PingsDespiteTraffic()
+    {
+        var (m, t, time) = Create();
+        m.Start();
+
+        time.Advance(TimeSpan.FromSeconds(10));
+        m.TryHandleMessage("data"u8);
+        time.Advance(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(2, t.Sent.Count);
+        await m.DisposeAsync();
+    }
+
+    /// <summary>
+    /// A non-positive idle timeout is rejected only while the switch is on.
+    /// </summary>
+    [Fact]
+    public void Constructor_NonPositiveIdleTimeout_ThrowsOnlyWhenEnabled()
+    {
+        var t = new FakeTransport();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new PingPongMonitor(t, new PingPongOptions { IdleTimeout = TimeSpan.Zero }));
+        _ = new PingPongMonitor(t, new PingPongOptions { PingOnlyWhenIdle = false, IdleTimeout = TimeSpan.Zero });
     }
 
     [Fact]

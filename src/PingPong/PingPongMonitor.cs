@@ -15,6 +15,12 @@ public sealed class PingPongMonitor : IAsyncDisposable
 
     private ITimer? _timer;
     private ulong _nextSeq;
+
+    /// <summary>
+    /// Timestamp (<see cref="TimeProvider.GetTimestamp"/>) of the last inbound activity; accessed with <see cref="Volatile"/>.
+    /// </summary>
+    private long _lastReceived;
+
     private int _missed;
     private bool _lost;
     private bool _disposed;
@@ -40,7 +46,11 @@ public sealed class PingPongMonitor : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (_timer is not null || _options.Role == PingPongRole.Responder) return;
-            _timer = _time.CreateTimer(OnTick, null, _options.Interval, _options.Interval);
+            NotifyReceived();
+
+            // In on-demand mode the first tick is due exactly when the idle timeout would expire.
+            var firstDue = _options.PingOnlyWhenIdle ? _options.IdleTimeout : _options.Interval;
+            _timer = _time.CreateTimer(OnTick, null, firstDue, _options.Interval);
         }
     }
 
@@ -54,10 +64,22 @@ public sealed class PingPongMonitor : IAsyncDisposable
     }
 
     /// <summary>
+    /// Records that something was received, so on-demand pinging treats the link as alive.
+    /// <see cref="TryHandleMessage"/> already calls this; call it directly for traffic that does not pass through
+    /// <see cref="TryHandleMessage"/> (for example text frames, or partial frames of a large message).
+    /// </summary>
+    public void NotifyReceived()
+    {
+        Volatile.Write(ref _lastReceived, _time.GetTimestamp());
+    }
+
+    /// <summary>
     /// Returns true if <paramref name="data"/> was a ping/pong frame (handled internally); false if it is application data.
     /// </summary>
     public bool TryHandleMessage(ReadOnlySpan<byte> data)
     {
+        NotifyReceived();
+
         if (!PingPongProtocol.TryDecode(data, out var kind, out var seq, out var timestamp))
             return false;
 
@@ -95,6 +117,13 @@ public sealed class PingPongMonitor : IAsyncDisposable
         {
             if (_disposed || _lost || _timer is null) return;
 
+            // Clamp: a message may have arrived after `now` was sampled.
+            var idle = _time.GetElapsedTime(Volatile.Read(ref _lastReceived), now);
+            if (idle < TimeSpan.Zero)
+            {
+                idle = TimeSpan.Zero;
+            }
+
             var expired = _outstanding.Where(p => _time.GetElapsedTime(p.Value, now) >= _options.Timeout)
                                       .Select(p => p.Key).ToList();
             foreach (var key in expired)
@@ -110,6 +139,15 @@ public sealed class PingPongMonitor : IAsyncDisposable
                 _timer = null;
                 lostReason = $"No pong received for {_missed} consecutive pings.";
                 seq = 0;
+            }
+            else if (_options.PingOnlyWhenIdle
+                     && _outstanding.Count == 0
+                     && _missed == 0
+                     && idle < _options.IdleTimeout)
+            {
+                // Traffic is flowing; wake up again exactly when the idle timeout would expire.
+                _timer.Change(_options.IdleTimeout - idle, _options.Interval);
+                return;
             }
             else
             {
