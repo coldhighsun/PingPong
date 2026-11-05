@@ -1,10 +1,16 @@
 // PingPong sample.
 //
 //   dotnet run --project samples/PingPong.Sample            # in-process demo: server + client
-//   dotnet run --project samples/PingPong.Sample -- server  # server only (port 5055)
-//   dotnet run --project samples/PingPong.Sample -- client  # client only, connects to port 5055
-//   dotnet run --project samples/PingPong.Sample -- tcp-server  # TCP echo server (port 5056)
-//   dotnet run --project samples/PingPong.Sample -- tcp-client  # TCP client, connects to port 5056
+//
+// To run server and client as separate processes, build once and start both with --no-build.
+// Otherwise a rebuild triggered by the second "dotnet run" fails on Windows (MSB3027), because
+// the first process has PingPong.Sample.exe locked.
+//
+//   dotnet build samples/PingPong.Sample
+//   dotnet run --no-build --project samples/PingPong.Sample -- server  # server only (port 5055)
+//   dotnet run --no-build --project samples/PingPong.Sample -- client  # client only, connects to port 5055
+//   dotnet run --no-build --project samples/PingPong.Sample -- tcp-server  # TCP echo server (port 5056)
+//   dotnet run --no-build --project samples/PingPong.Sample -- tcp-client  # TCP client, connects to port 5056
 //
 // Roles: the client is the Initiator (sends pings, measures RTT, detects a lost connection);
 // the server is the Responder (only answers pings with pongs).
@@ -133,24 +139,34 @@ async Task RunServerAsync(TimeSpan? simulateFailureAfter, CancellationToken ct)
 
     var started = DateTime.UtcNow;
     var buffer = new byte[8192];
-    while (socket.State == WebSocketState.Open)
+    try
     {
-        if (simulateFailureAfter is { } delay && DateTime.UtcNow - started > delay)
+        while (socket.State == WebSocketState.Open)
         {
-            // Simulate a hung peer: stop reading (so no more pongs) but keep the socket open.
-            Log("server", "simulating a hung server: no more pongs from here on");
-            await Task.Delay(Timeout.Infinite, ct);
+            if (simulateFailureAfter is { } delay && DateTime.UtcNow - started > delay)
+            {
+                // Simulate a hung peer: stop reading (so no more pongs) but keep the socket open.
+                Log("server", "simulating a hung server: no more pongs from here on");
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+
+            // (Messages are assumed to fit the buffer; the PingPongWebSocket wrapper handles large ones.)
+            var result = await socket.ReceiveAsync(buffer, ct);
+            if (result.MessageType == WebSocketMessageType.Close) break;
+
+            var message = buffer.AsMemory(0, result.Count);
+            if (monitor.TryHandleMessage(message.Span)) continue; // heartbeat, handled
+
+            var text = Encoding.UTF8.GetString(message.Span);
+            Log("server", $"app message: {text}");
+            await transport.SendAsync(Encoding.UTF8.GetBytes($"echo: {text}"), WebSocketMessageType.Text, ct);
         }
 
-        // (Messages are assumed to fit the buffer; the PingPongWebSocket wrapper handles large ones.)
-        var result = await socket.ReceiveAsync(buffer, ct);
-        if (result.MessageType == WebSocketMessageType.Close) break;
-
-        var message = buffer.AsMemory(0, result.Count);
-        if (monitor.TryHandleMessage(message.Span)) continue; // heartbeat, handled
-
-        var text = Encoding.UTF8.GetString(message.Span);
-        Log("server", $"app message: {text}");
-        await transport.SendAsync(Encoding.UTF8.GetBytes($"echo: {text}"), WebSocketMessageType.Text, ct);
+        Log("server", "closed");
+    }
+    catch (WebSocketException ex)
+    {
+        // With your own receive loop, a peer that vanishes without a close handshake surfaces here.
+        Log("server", $"closed with error: {ex.Message}");
     }
 }
