@@ -33,6 +33,11 @@ public sealed class FrameReader : IDisposable
     private readonly Stream _stream;
 
     /// <summary>
+    /// Optional callback invoked whenever bytes arrive from the stream.
+    /// </summary>
+    private readonly Action? _onActivity;
+
+    /// <summary>
     /// Scratch space for the length prefix.
     /// </summary>
     private readonly byte[] _header = new byte[LengthPrefixedFraming.HeaderSize];
@@ -62,9 +67,23 @@ public sealed class FrameReader : IDisposable
     /// </summary>
     /// <param name="stream">The stream to read frames from. It is not disposed by the reader.</param>
     public FrameReader(Stream stream)
+        : this(stream, null)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FrameReader"/> class.
+    /// </summary>
+    /// <param name="stream">The stream to read frames from. It is not disposed by the reader.</param>
+    /// <param name="onActivity">
+    /// Called every time bytes arrive from the stream, including partway through a large frame
+    /// (pass <see cref="PingPongMonitor.NotifyReceived"/> so a slow transfer counts as activity), or <see langword="null"/>.
+    /// </param>
+    public FrameReader(Stream stream, Action? onActivity)
     {
         ArgumentNullException.ThrowIfNull(stream);
         _stream = stream;
+        _onActivity = onActivity;
     }
 
     /// <summary>
@@ -106,6 +125,7 @@ public sealed class FrameReader : IDisposable
             }
 
             read += count;
+            _onActivity?.Invoke();
         }
 
         var length = BinaryPrimitives.ReadInt32BigEndian(_header);
@@ -129,7 +149,19 @@ public sealed class FrameReader : IDisposable
             _buffer = ArrayPool<byte>.Shared.Rent(length);
         }
 
-        await _stream.ReadExactlyAsync(_buffer.AsMemory(0, length), cancellationToken).ConfigureAwait(false);
+        var received = 0;
+        while (received < length)
+        {
+            var count = await _stream.ReadAsync(_buffer.AsMemory(received, length - received), cancellationToken).ConfigureAwait(false);
+            if (count == 0)
+            {
+                throw new EndOfStreamException("Stream ended inside a frame payload.");
+            }
+
+            received += count;
+            _onActivity?.Invoke();
+        }
+
         _length = length;
         return true;
     }

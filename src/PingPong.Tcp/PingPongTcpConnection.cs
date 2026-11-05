@@ -152,7 +152,7 @@ public sealed class PingPongTcpConnection : IAsyncDisposable
     private async Task ReceiveLoopAsync()
     {
         Exception? error = null;
-        using var reader = new FrameReader(_transport.Stream);
+        using var reader = new FrameReader(_transport.Stream, _monitor.NotifyReceived);
         try
         {
             var ct = _cts.Token;

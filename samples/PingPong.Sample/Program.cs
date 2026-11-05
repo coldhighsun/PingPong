@@ -35,6 +35,7 @@ var options = new PingPongOptions
     Interval = TimeSpan.FromSeconds(1),
     Timeout = TimeSpan.FromMilliseconds(800),
     MaxMissedPongs = 2,
+    PingOnlyWhenIdle = false, // default is true: ping only after IdleTimeout (10 s) without inbound data; the demo wants steady pings
     CloseOnTimeout = true, // default is false: only raise ConnectionLost
     Role = PingPongRole.Initiator, // client side
 };

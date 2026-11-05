@@ -96,7 +96,7 @@ monitor.Start();
 
 try
 {
-    using var reader = new FrameReader(tcpClient.GetStream());
+    using var reader = new FrameReader(tcpClient.GetStream(), monitor.NotifyReceived);
     while (await reader.ReadAsync(ct))
     {
         if (!monitor.TryHandleMessage(reader.Current.Span)) HandleApplicationMessage(reader.Current);
@@ -127,11 +127,13 @@ if (!monitor.TryHandleMessage(bytes)) HandleApplicationMessage(bytes);
 |---|---|---|
 | `Interval` | 15 s | Time between pings |
 | `Timeout` | 10 s | Wait for a pong before a ping counts as missed (must be ≤ `Interval`) |
+| `PingOnlyWhenIdle` | true | Ping only after `IdleTimeout` without any inbound message (application data, ping or pong all count). Set to `false` to ping on every `Interval` |
+| `IdleTimeout` | 10 s | Inbound silence required before pinging starts (used only when `PingOnlyWhenIdle` is true). The first ping goes out when it elapses; unanswered pings then repeat every `Interval`. **Behavior change:** since `PingOnlyWhenIdle` defaults to `true`, set it to `false` if you rely on a periodic ping/`PongReceived` RTT while traffic flows |
 | `MaxMissedPongs` | 2 | Consecutive misses before `ConnectionLost` fires (once) |
 | `CloseOnTimeout` | false | Also close the transport when the connection is lost |
 | `Role` | `Initiator` | `Initiator` sends pings and detects loss (client). `Responder` only answers pings with pongs (server): no pings, no `PongReceived`/`ConnectionLost`. If both ends are initiators, each pings the other |
 
-Misses are evaluated at each tick, so loss is reported roughly `MaxMissedPongs × Interval` after the last answered ping.
+Misses are evaluated at each tick, so loss is reported roughly `MaxMissedPongs × Interval` after the first unanswered ping. With `PingOnlyWhenIdle`, that first ping follows the last inbound message by `IdleTimeout` exactly.
 After `ConnectionLost` pinging stops; there is no automatic reconnect.
 
 ## Frame format

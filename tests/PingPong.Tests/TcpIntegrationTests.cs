@@ -28,6 +28,7 @@ public class TcpIntegrationTests
         Timeout = TimeSpan.FromMilliseconds(80),
         MaxMissedPongs = 2,
         CloseOnTimeout = closeOnTimeout,
+        PingOnlyWhenIdle = false,
     };
 
     /// <summary>
